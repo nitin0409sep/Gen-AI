@@ -1,5 +1,7 @@
 import dotenv from "dotenv";
 dotenv.config();
+
+import readline from "node:readline/promises";
 import Groq from "groq-sdk";
 import { webSearch } from "./web-search";
 
@@ -9,20 +11,33 @@ async function main() {
     const messages: any = [
         {
             role: "system",
-            content: `You are a smart personal assistant who answers the asked questions. Please provide your response in JSON format. 
-                    U have access to following tool:
-                    1. searchWeb({query}: {query: string}), //"Search the latest information and realtime data on the internet."
+            content: `You are a smart personal assistant who answers the asked questions. 
+                      U have access to following tool but use them when required only, don't use them unnecessarily:
+                        1. searchWeb({query}: {query: string}), //"Search the latest information and realtime data on the internet."
                 `,
         },
-        {
-            role: "user",
-            content: "When was iphone16 launched?",
-            // content: "What is current weather in Noida and also current date and time?",
-        },
+        // {
+        //     role: "user",
+        //     content: "Hey",
+        //     // content: "When iPhone 17 was launched ?",
+        //     // content: "What is current weather in Noida and also current date and time?",
+        // },
     ];
 
-    // Completion 1
-    const completions = await groq.chat.completions.create({
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+
+    while (1) {
+        const question = await rl.question("You: ");
+
+        if (question === "bye") break;
+
+        messages.push({
+            role: "user",
+            content: question,
+        });
+
+        while (1) {
+            const completions = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         temperature: 0,
         messages: messages,
@@ -46,25 +61,26 @@ async function main() {
             },
         ],
         tool_choice: "auto",
-    });
+            });
 
-    // It says call the tool
-    messages.push(completions.choices[0].message);
+            // It says call the tool
+            messages.push(completions.choices[0].message);
 
-    const toolCalls = completions.choices[0].message.tool_calls;
+            const toolCalls = completions.choices[0].message.tool_calls;
 
-    if (!toolCalls) {
+            if (!toolCalls) {
         console.log(`Assistant: ${completions.choices[0].message?.content}`);
-        return;
-    }
+                break;
+            }
 
-    // Tool Calls - Array -> Multiple tools
-    for (const tool of toolCalls) {
+            // Tool Calls - Array -> Multiple tools
+            for (const tool of toolCalls) {
         const functionName = tool.function.name;
         const functionParams = tool.function.arguments;
 
         // Check to call the correct tool
         if (functionName === "webSearch") {
+            console.log("Calling Web Search....");
             const toolResult = await webSearch(JSON.parse(functionParams));
 
             // Push Tool result into the Messages
@@ -75,16 +91,13 @@ async function main() {
                 content: toolResult,
             });
         }
+            }
+
+            console.log(JSON.stringify(completions.choices[0]?.message, null, 2));
+        }
     }
 
-    // Completion 2
-    const completions2 = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0,
-        messages: messages,
-    });
-
-    console.log(JSON.stringify(completions2.choices[0]?.message, null, 2));
+    rl.close();
 }
 
 main();
