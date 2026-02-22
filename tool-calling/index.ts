@@ -1,28 +1,31 @@
-import Groq from "groq-sdk";
 import dotenv from "dotenv";
-
 dotenv.config();
+import Groq from "groq-sdk";
+import { webSearch } from "./web-search";
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 async function main() {
-    const completions = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        temperature: 0,
-        messages: [
-            {
-                role: "system",
-                content: `You are a smart personal assistant who answers the asked questions. Please provide your response in JSON format. 
+    const messages: any = [
+        {
+            role: "system",
+            content: `You are a smart personal assistant who answers the asked questions. Please provide your response in JSON format. 
                     U have access to following tool:
                     1. searchWeb({query}: {query: string}), //"Search the latest information and realtime data on the internet."
                 `,
-            },
-            {
-                role: "user",
-                content: "When was iphone16 launched?",
-                // content: "What is current weather in Noida and also current date and time?",
-            },
-        ],
+        },
+        {
+            role: "user",
+            content: "When was iphone16 launched?",
+            // content: "What is current weather in Noida and also current date and time?",
+        },
+    ];
+
+    // Completion 1
+    const completions = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0,
+        messages: messages,
         tools: [
             {
                 type: "function",
@@ -45,7 +48,43 @@ async function main() {
         tool_choice: "auto",
     });
 
-    console.log(JSON.stringify(completions.choices[0]?.message, null, 2));
+    // It says call the tool
+    messages.push(completions.choices[0].message);
+
+    const toolCalls = completions.choices[0].message.tool_calls;
+
+    if (!toolCalls) {
+        console.log(`Assistant: ${completions.choices[0].message?.content}`);
+        return;
+    }
+
+    // Tool Calls - Array -> Multiple tools
+    for (const tool of toolCalls) {
+        const functionName = tool.function.name;
+        const functionParams = tool.function.arguments;
+
+        // Check to call the correct tool
+        if (functionName === "webSearch") {
+            const toolResult = await webSearch(JSON.parse(functionParams));
+
+            // Push Tool result into the Messages
+            messages.push({
+                tool_call_id: tool.id,
+                role: "tool", // When we are pusing tool role
+                name: functionName, // Tool Name
+                content: toolResult,
+            });
+        }
+    }
+
+    // Completion 2
+    const completions2 = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        temperature: 0,
+        messages: messages,
+    });
+
+    console.log(JSON.stringify(completions2.choices[0]?.message, null, 2));
 }
 
 main();
